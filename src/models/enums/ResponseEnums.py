@@ -1,0 +1,1 @@
+# User-friendly response messages for the API
