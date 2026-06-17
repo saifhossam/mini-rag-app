@@ -4,7 +4,7 @@ from bson.objectid import ObjectId
 
 class Project(BaseModel):
     id: Optional[ObjectId] = Field(None, alias="_id")
-    project_id: str = Field(..., min_length=1) # project id here is the name of the folder where the data chunks are stored
+    project_id: str = Field(..., min_length=1)
 
     @validator('project_id')
     def validate_project_id(cls, value):
@@ -13,6 +13,18 @@ class Project(BaseModel):
         
         return value
 
-    # By default, Pydantic does not allow arbitrary types like ObjectId, so we need to enable that.
     class Config:
         arbitrary_types_allowed = True
+
+    @classmethod
+    def get_indexes(cls):
+
+        return [
+            {
+                "key": [
+                    ("project_id", 1)
+                ],
+                "name": "project_id_index_1",
+                "unique": True
+            }
+        ]
