@@ -127,6 +127,8 @@ async def process_endpoint(request: Request, project_id: str, process_request: P
         }
     
     else:
+        
+
         project_files = await asset_model.get_all_project_assets(
             asset_project_id=project.id,
             asset_type=AssetTypeEnum.FILE.value,
@@ -150,7 +152,9 @@ async def process_endpoint(request: Request, project_id: str, process_request: P
     no_records = 0
     no_files = 0
 
-    chunk_model = await ChunkModel.create_instance(db_client=request.app.db_client)
+    chunk_model = await ChunkModel.create_instance(
+                        db_client=request.app.db_client
+                    )
 
     if do_reset == 1:
         _ = await chunk_model.delete_chunks_by_project_id(
