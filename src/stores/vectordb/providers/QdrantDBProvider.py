@@ -1,9 +1,12 @@
 from qdrant_client import models, QdrantClient
 from ..VectorDBInterface import VectorDBInterface
 from ..VectorDBEnums import DistanceMethodEnums
+
 import logging
 from typing import List
+
 from models.db_schemes import RetrievedDocument
+
 
 class QdrantDBProvider(VectorDBInterface):
 
@@ -15,38 +18,67 @@ class QdrantDBProvider(VectorDBInterface):
 
         if distance_method == DistanceMethodEnums.COSINE.value:
             self.distance_method = models.Distance.COSINE
+
         elif distance_method == DistanceMethodEnums.DOT.value:
             self.distance_method = models.Distance.DOT
+
+        else:
+            raise ValueError(
+                f"Unsupported distance method: {distance_method}"
+            )
 
         self.logger = logging.getLogger(__name__)
 
     def connect(self):
-        self.client = QdrantClient(path=self.db_path)
+        self.client = QdrantClient(
+            path=self.db_path
+        )
 
     def disconnect(self):
+        if self.client:
+            self.client.close()
+
         self.client = None
 
     def is_collection_existed(self, collection_name: str) -> bool:
-        return self.client.collection_exists(collection_name=collection_name)
-    
+
+        return self.client.collection_exists(
+            collection_name=collection_name
+        )
+
     def list_all_collections(self) -> List:
-        return self.client.get_collections()
-    
+
+        return self.client.get_collections().collections
+
     def get_collection_info(self, collection_name: str) -> dict:
-        return self.client.get_collection(collection_name=collection_name)
-    
+
+        return self.client.get_collection(
+            collection_name=collection_name
+        )
+
     def delete_collection(self, collection_name: str):
+
         if self.is_collection_existed(collection_name):
-            return self.client.delete_collection(collection_name=collection_name)
-        
-    def create_collection(self, collection_name: str, 
-                                embedding_size: int,
-                                do_reset: bool = False):
+
+            return self.client.delete_collection(
+                collection_name=collection_name
+            )
+
+    def create_collection(
+        self,
+        collection_name: str,
+        embedding_size: int,
+        do_reset: bool = False
+    ):
+
         if do_reset:
-            _ = self.delete_collection(collection_name=collection_name)
-        
+            self.delete_collection(
+                collection_name=collection_name
+            )
+
         if not self.is_collection_existed(collection_name):
-            _ = self.client.create_collection(
+
+            self.client.create_collection(
                 collection_name=collection_name,
                 vectors_config=models.VectorParams(
                     size=embedding_size,
@@ -55,40 +87,65 @@ class QdrantDBProvider(VectorDBInterface):
             )
 
             return True
-        
+
         return False
-    
-    def insert_one(self, collection_name: str, text: str, vector: list,
-                         metadata: dict = None, 
-                         record_id: str = None):
-        
+
+    def insert_one(
+        self,
+        collection_name: str,
+        text: str,
+        vector: list,
+        metadata: dict = None,
+        record_id: str = None
+    ):
+
         if not self.is_collection_existed(collection_name):
-            self.logger.error(f"Can not insert new record to non-existed collection: {collection_name}")
-            return False
-        
-        try:
-            _ = self.client.upload_records(
-                collection_name=collection_name,
-                records=[
-                    models.Record(
-                        id=[record_id],
-                        vector=vector,
-                        payload={
-                            "text": text, "metadata": metadata
-                        }
-                    )
-                ]
+
+            self.logger.error(
+                f"Can not insert new record to non-existed collection: {collection_name}"
             )
+
+            return False
+
+        try:
+
+            payload = {
+                "text": text,
+                "metadata": metadata if metadata else {}
+            }
+
+            self.client.upsert(
+                collection_name=collection_name,
+                points=[
+                    models.PointStruct(
+                        id=record_id,
+                        vector=vector,
+                        payload=payload
+                    )
+                ],
+                wait=True
+            )
+
         except Exception as e:
-            self.logger.error(f"Error while inserting batch: {e}")
+
+            self.logger.error(
+                f"Error while inserting record: {e}"
+            )
+
             return False
 
         return True
-    
-    def insert_many(self, collection_name: str, texts: list, 
-                          vectors: list, metadata: list = None, 
-                          record_ids: list = None, batch_size: int = 50):
-        
+
+    def insert_many(
+        self,
+        collection_name: str,
+        texts: list,
+        vectors: list,
+        metadata: list = None,
+        record_ids: list = None,
+        batch_size: int = 50
+    ):
+
         if metadata is None:
             metadata = [None] * len(texts)
 
@@ -96,6 +153,7 @@ class QdrantDBProvider(VectorDBInterface):
             record_ids = list(range(0, len(texts)))
 
         for i in range(0, len(texts), batch_size):
+
             batch_end = i + batch_size
 
             batch_texts = texts[i:batch_end]
@@ -103,45 +161,62 @@ class QdrantDBProvider(VectorDBInterface):
             batch_metadata = metadata[i:batch_end]
             batch_record_ids = record_ids[i:batch_end]
 
-            batch_records = [
-                models.Record(
-                    id=batch_record_ids[x],
-                    vector=batch_vectors[x],
-                    payload={
-                        "text": batch_texts[x], "metadata": batch_metadata[x]
-                    }
-                )
+            batch_points = []
 
-                for x in range(len(batch_texts))
-            ]
+            for x in range(len(batch_texts)):
+
+                batch_points.append(
+                    models.PointStruct(
+                        id=batch_record_ids[x],
+                        vector=batch_vectors[x],
+                        payload={
+                            "text": batch_texts[x],
+                            "metadata": batch_metadata[x]
+                            if batch_metadata[x]
+                            else {}
+                        }
+                    )
+                )
 
             try:
-                _ = self.client.upload_records(
+
+                self.client.upsert(
                     collection_name=collection_name,
-                    records=batch_records,
+                    points=batch_points,
+                    wait=True
                 )
+
             except Exception as e:
-                self.logger.error(f"Error while inserting batch: {e}")
+
+                self.logger.error(
+                    f"Error while inserting batch: {e}"
+                )
+
                 return False
 
         return True
-        
-    def search_by_vector(self, collection_name: str, vector: list, limit: int = 5):
 
-        results = self.client.search(
+    def search_by_vector(
+        self,
+        collection_name: str,
+        vector: list,
+        limit: int = 5
+    ):
+
+        results = self.client.query_points(
             collection_name=collection_name,
-            query_vector=vector,
+            query=vector,
             limit=limit
         )
 
-        if not results or len(results) == 0:
-            return None
-        
-        return [
-            RetrievedDocument(**{
-                "score": result.score,
-                "text": result.payload["text"],
-            })
-            for result in results
-        ]
+        if not results or not results.points:
 
+            return None
+
+        return [
+            RetrievedDocument(
+                score=result.score,
+                text=result.payload.get("text", "")
+            )
+            for result in results.points
+        ]
