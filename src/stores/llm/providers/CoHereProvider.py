@@ -1,6 +1,6 @@
 from ..LLMInterface import LLMInterface
 from ..LLMEnums import CoHereEnums, DocumentTypeEnum
-
+from typing import List, Union
 import cohere
 import logging
 
@@ -107,43 +107,36 @@ class CoHereProvider(LLMInterface):
 
         return response.message.content[0].text
 
-    def embed_text(
-        self,
-        text: str,
-        document_type: str = DocumentTypeEnum.QUERY.value
-    ):
-
+    def embed_text(self, text: Union[str, List[str]], document_type: str = None):
         if not self.client:
             self.logger.error("CoHere client was not set")
             return None
-
+        
+        if isinstance(text, str):
+            text = [text]
+        
         if not self.embedding_model_id:
-            self.logger.error("Embedding model was not set")
+            self.logger.error("Embedding model for CoHere was not set")
             return None
-
-        if document_type == DocumentTypeEnum.DOCUMENT.value:
-            input_type = CoHereEnums.DOCUMENT.value
-        else:
-            input_type = CoHereEnums.QUERY.value
+        
+        input_type = CoHereEnums.DOCUMENT
+        if document_type == DocumentTypeEnum.QUERY:
+            input_type = CoHereEnums.QUERY
 
         response = self.client.embed(
-            model=self.embedding_model_id,
-            texts=[self.process_text(text)],
-            input_type=input_type,
-            embedding_types=["float"],
-            output_dimension=self.embedding_size
+            model = self.embedding_model_id,
+            texts = [ self.process_text(t) for t in text ],
+            input_type = input_type,
+            embedding_types=['float'],
         )
 
-        if (
-            not response
-            or not response.embeddings
-            or not response.embeddings.float
-        ):
-            self.logger.error("Error while embedding text")
+        if not response or not response.embeddings or not response.embeddings.float:
+            self.logger.error("Error while embedding text with CoHere")
             return None
+        
+        return [ f for f in response.embeddings.float ]
 
-        return response.embeddings.float[0]
-
+        
     def process_text(self, text: str):
         return text[:self.default_input_max_characters].strip()
 
@@ -154,7 +147,7 @@ class CoHereProvider(LLMInterface):
             "content": [
                 {
                     "type": "text",
-                    "text": self.process_text(prompt)
+                    "text": "prompt"
                 }
             ]
         }
